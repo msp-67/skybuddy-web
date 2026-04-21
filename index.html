@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SkyBuddy — 3D-tisknutelné letadlo pro děti</title>
+  <meta name="description" content="SkyBuddy — Bezpečné 3D-tisknutelné letadlo pro děti. Vytiskni si doma. Hraj si hned.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* ── Variables ───────────────────────────────────────────────── */
+    :root {
+      --bg:       #d4e8f7;
+      --surface:  #ffffff;
+      --surface2: #bfdcf0;
+      --accent:   #f5a623;
+      --accent2:  #d0021b;
+      --sky:      #87ceeb;
+      --text:     #1a2e3d;
+      --muted:    #5a7a92;
+      --border:   #a8cde5;
+      --font-body: 'Nunito', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: auto; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      height: 600vh;
+      overflow-x: hidden;
+      touch-action: pan-y;
+    }
+
+    /* ── Loading ─────────────────────────────────────────────────── */
+    #loading {
+      position: fixed; inset: 0; z-index: 100;
+      background: #b8ddf5;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+      transition: opacity 0.8s ease;
+    }
+    #loading-logo {
+      font-family: var(--font-body); font-size: 28px; font-weight: 900;
+      color: var(--text); margin-bottom: 8px; letter-spacing: -0.02em;
+    }
+    #loading-logo .yl { color: var(--accent); }
+    #loading-bar-track { width: 280px; height: 3px; background: rgba(26,46,61,0.15); border-radius: 2px; }
+    #loading-bar-fill  { height: 100%; width: 0%; background: var(--accent); border-radius: 2px; transition: width 0.15s linear; }
+    #loading-text { font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: 0.25em; }
+
+    /* ── Canvas ──────────────────────────────────────────────────── */
+    #canvas-container { position: fixed; inset: 0; z-index: 0; }
+    #canvas-container canvas { display: block; width: 100% !important; height: 100% !important; }
+
+    /* ── Cloud overlay ───────────────────────────────────────────── */
+    #cloud-overlay {
+      position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden;
+    }
+    .cloud {
+      position: absolute;
+      background: rgba(255,255,255,0.55);
+      border-radius: 100px;
+      filter: blur(22px);
+    }
+    .cloud-1 { width: 360px; height: 90px; top: 10%; animation: drift 32s linear infinite; }
+    .cloud-2 { width: 240px; height: 60px; top: 32%; animation: drift 42s linear infinite 6s; }
+    .cloud-3 { width: 320px; height: 75px; top: 58%; animation: drift 36s linear infinite 12s; }
+    .cloud-4 { width: 200px; height: 55px; top: 78%; animation: drift 48s linear infinite 20s; }
+    @keyframes drift {
+      from { transform: translateX(-10%); }
+      to   { transform: translateX(110vw); }
+    }
+
+    /* ── Decorative SVG clouds in hero ─────────────────────────────── */
+    .hero-cloud-svg {
+      position: absolute;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.8s ease;
+    }
+    .section#s01.entered .hero-cloud-svg { opacity: 1; }
+    .hero-cloud-svg.c-a { top: 10%; left: 5%;   width: 180px; animation: floaty 8s ease-in-out infinite; }
+    .hero-cloud-svg.c-b { top: 20%; right: 6%;  left: auto; width: 140px; animation: floaty 10s ease-in-out infinite 2s; }
+    .hero-cloud-svg.c-c { top: 52%; left: 4%;   width: 130px; animation: floaty 9s ease-in-out infinite 4s; }
+    @keyframes floaty {
+      0%, 100% { transform: translateY(0); }
+      50%      { transform: translateY(-12px); }
+    }
+
+    /* ── Progress bar ────────────────────────────────────────────── */
+    #progress-track {
+      position: fixed; left: 20px; top: 50%; transform: translateY(-50%);
+      width: 3px; height: 60vh; background: var(--border); z-index: 5; border-radius: 2px;
+    }
+    #progress-fill { position: absolute; top: 0; left: 0; width: 100%; height: 0%; background: var(--accent); border-radius: 2px; }
+    #progress-label {
+      position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%);
+      font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.15em; color: var(--muted);
+      white-space: nowrap;
+    }
+
+    /* ── Nav ─────────────────────────────────────────────────────── */
+    #nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 28px 6vw;
+      border-bottom: 1px solid transparent;
+      transition: background 0.4s ease, border-color 0.4s ease, backdrop-filter 0.4s ease;
+    }
+    #nav.scrolled {
+      background: rgba(212,232,247,0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom-color: var(--border);
+    }
+    #nav-logo {
+      font-family: var(--font-body); font-size: 20px; font-weight: 900;
+      color: var(--text); letter-spacing: -0.02em;
+    }
+    #nav-logo .yl { color: var(--accent); }
+    #nav-right { display: flex; align-items: center; gap: 16px; }
+    #nav-section { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.15em; color: var(--muted); }
+    #nav-dot { width: 8px; height: 8px; background: var(--accent); border-radius: 50%; }
+
+    /* ── Content overlay ─────────────────────────────────────────── */
+    #content { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
+
+    .section {
+      position: absolute; inset: 0;
+      display: flex; align-items: center;
+      padding: 88px 6vw 48px;
+      opacity: 0;
+      will-change: transform, opacity;
+      pointer-events: none;
+    }
+    .section.visible { pointer-events: auto; }
+
+    /* ── Two-column sections ─────────────────────────────────────── */
+    #s01 { align-items: flex-end; padding-bottom: 16vh; }
+    #s02, #s03 { gap: 4vw; }
+    .sec-content { flex-shrink: 0; }
+    #s01 .sec-content { max-width: 520px; }
+    #s02 .sec-content { max-width: 720px; }
+    #s03 .sec-content { max-width: 820px; }
+    #s04 .sec-content { max-width: 100%; width: 100%; }
+    .sec-visual { flex: 1; display: flex; align-items: center; justify-content: center; }
+    .sec-visual svg { width: 100%; height: auto; max-height: 68vh; }
+
+    /* ── Corner labels ───────────────────────────────────────────── */
+    .corner-tl, .corner-br {
+      position: absolute;
+      font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; color: var(--muted);
+      pointer-events: none; opacity: 0.5;
+    }
+    .corner-tl { top: 64px; left: 6vw; }
+    .corner-br { bottom: 20px; right: 6vw; text-align: right; }
+
+    /* ── Section separator ───────────────────────────────────────── */
+    .sec-sep {
+      position: absolute; top: 76px; left: 6vw;
+      display: flex; align-items: center; gap: 0;
+      width: calc(100% - 12vw);
+      opacity: 0.35; pointer-events: none;
+    }
+    .sep-cross { width: 9px; height: 9px; position: relative; flex-shrink: 0; }
+    .sep-cross::before, .sep-cross::after {
+      content: ''; position: absolute; background: var(--accent);
+    }
+    .sep-cross::before { width: 9px; height: 1px; top: 4px; left: 0; }
+    .sep-cross::after  { width: 1px; height: 9px; left: 4px; top: 0; }
+    .sep-line { flex: 1; height: 1px; background: var(--accent); margin: 0 4px; }
+
+    /* ── Section labels ──────────────────────────────────────────── */
+    .sec-label {
+      font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.25em;
+      color: var(--accent); display: flex; align-items: center; gap: 14px;
+      margin-bottom: 22px; text-transform: uppercase;
+    }
+    .sec-label::after { content: ''; display: block; width: 36px; height: 1px; background: var(--accent); }
+
+    /* ── Typography ──────────────────────────────────────────────── */
+    .hero-title {
+      font-size: clamp(56px, 8vw, 96px); font-weight: 900;
+      letter-spacing: -0.04em; line-height: 0.92;
+      margin-bottom: 22px; color: var(--text);
+    }
+    .hero-title .yl { color: var(--accent); }
+    .hero-sub {
+      font-size: clamp(13px, 1.4vw, 15px); color: var(--muted);
+      font-weight: 600; letter-spacing: 0.01em; margin-bottom: 24px;
+      max-width: 400px; line-height: 1.6;
+    }
+    .hero-tag {
+      font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.3em;
+      color: var(--accent); border: 2px solid var(--accent);
+      display: inline-block; padding: 6px 12px; border-radius: 4px;
+    }
+    h2.sec-heading {
+      font-size: clamp(22px, 2.8vw, 38px); font-weight: 800;
+      letter-spacing: -0.03em; color: var(--text); margin-bottom: 16px;
+    }
+    .body-text {
+      font-size: 14px; font-weight: 500; line-height: 1.75; color: var(--muted);
+      margin-bottom: 24px;
+    }
+
+    /* ── Stagger entrance ────────────────────────────────────────── */
+    .section .sec-label,
+    .section h1.hero-title,
+    .section h2.sec-heading,
+    .section .hero-sub,
+    .section .hero-tag,
+    .section .body-text,
+    .section .stats-grid,
+    .section .specs-grid,
+    .section .print-steps,
+    .section .s04-intro,
+    .section .sec-footer,
+    .section .s04-footer,
+    .section .sec-visual {
+      opacity: 0;
+      will-change: opacity;
+      transition: opacity 0.45s ease;
+    }
+    .section.entered .sec-label       { opacity: 1; transition-delay: 0.00s; }
+    .section.entered h1.hero-title     { opacity: 1; transition-delay: 0.06s; }
+    .section.entered h2.sec-heading    { opacity: 1; transition-delay: 0.06s; }
+    .section.entered .hero-sub         { opacity: 1; transition-delay: 0.12s; }
+    .section.entered .s04-intro        { opacity: 1; transition-delay: 0.12s; }
+    .section.entered .hero-tag         { opacity: 1; transition-delay: 0.18s; }
+    .section.entered .body-text        { opacity: 1; transition-delay: 0.14s; }
+    .section.entered .stats-grid,
+    .section.entered .specs-grid,
+    .section.entered .print-steps      { opacity: 1; transition-delay: 0.22s; }
+    .section.entered .sec-footer       { opacity: 1; transition-delay: 0.32s; }
+    .section.entered .s04-footer       { opacity: 1; transition-delay: 0.36s; }
+    .section.entered .sec-visual       { opacity: 1; transition-delay: 0.18s; }
+
+    /* ── Scroll indicator ────────────────────────────────────────── */
+    .scroll-indicator {
+      position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.3em; color: var(--muted);
+      animation: indicatorBounce 2.4s ease-in-out infinite;
+    }
+    @keyframes indicatorBounce {
+      0%,100% { transform: translateX(-50%) translateY(0); opacity: 0.5; }
+      50%      { transform: translateX(-50%) translateY(10px); opacity: 1; }
+    }
+    .scroll-arrow { width: 1px; height: 32px; background: linear-gradient(to bottom, transparent, var(--muted)); }
+
+    /* ── Stats grid (S02) ────────────────────────────────────────── */
+    .stats-grid {
+      display: grid; grid-template-columns: repeat(4, auto);
+      gap: 1px; background: var(--border); border: 1px solid var(--border);
+      width: fit-content;
+    }
+    .stat-card { background: var(--surface); padding: 16px 20px; min-width: 88px; }
+    .stat-value { font-family: var(--font-mono); font-size: 22px; font-weight: 500; color: var(--text); letter-spacing: -0.02em; }
+    .stat-unit  { font-size: 12px; color: var(--muted); }
+    .stat-label { font-family: var(--font-mono); font-size: 9px; color: var(--muted); margin-top: 5px; text-transform: uppercase; letter-spacing: 0.12em; }
+
+    /* ── Specs grid (S03) ────────────────────────────────────────── */
+    .specs-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr);
+      gap: 1px; background: var(--border); border: 1px solid var(--border);
+    }
+    .spec-card {
+      background: var(--surface); padding: 18px 16px;
+      border-left: 3px solid var(--accent);
+      transition: border-left-width 0.2s ease;
+    }
+    .spec-card:hover { border-left-width: 5px; }
+    .spec-id   { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.2em; color: var(--accent); margin-bottom: 8px; }
+    .spec-name { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 3px; }
+    .spec-role { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 10px; }
+    .spec-list { list-style: none; display: flex; flex-direction: column; gap: 3px; }
+    .spec-list li { font-family: var(--font-mono); font-size: 9px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
+    .spec-list li::before { content: ''; width: 3px; height: 3px; background: var(--accent); flex-shrink: 0; }
+
+    /* ── Sec footer (S03) ────────────────────────────────────────── */
+    .sec-footer { margin-top: 16px; }
+    .weight-row { display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px; }
+    .weight-label { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.25em; color: var(--muted); text-transform: uppercase; }
+    .weight-value { font-family: var(--font-mono); font-size: 26px; font-weight: 500; color: var(--text); letter-spacing: -0.02em; }
+    .iso-ref { font-family: var(--font-mono); font-size: 8px; color: var(--border); letter-spacing: 0.12em; line-height: 1.5; }
+
+    /* ── Print steps (S04) ───────────────────────────────────────── */
+    .s04-intro { font-size: 14px; font-weight: 500; line-height: 1.7; color: var(--muted); max-width: 580px; margin-bottom: 20px; }
+    .print-steps {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 1px; background: var(--border); border: 1px solid var(--border);
+    }
+    .step-card {
+      background: var(--surface); padding: 20px 16px;
+      transition: background 0.2s ease, transform 0.2s ease;
+    }
+    .step-card:hover { background: var(--surface2); transform: scale(1.02); position: relative; z-index: 1; }
+    .step-card.primary {
+      background: var(--accent); grid-column: span 3;
+      padding: 20px 24px;
+      transition: filter 0.2s ease;
+    }
+    .step-card.primary:hover { filter: brightness(1.08); transform: none; }
+    .step-num  { font-family: var(--font-mono); font-size: 28px; font-weight: 500; color: var(--muted); margin-bottom: 6px; }
+    .step-id   { font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.2em; color: var(--muted); margin-bottom: 5px; }
+    .step-card.primary .step-id  { color: rgba(255,255,255,0.55); }
+    .step-name { font-size: 13px; font-weight: 700; color: var(--text); }
+    .step-card.primary .step-name { font-size: 15px; color: #fff; margin-bottom: 6px; }
+    .step-desc { font-family: var(--font-mono); font-size: 9px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+    .step-card.primary .step-desc { font-size: 10px; color: rgba(255,255,255,0.72); max-width: 640px; }
+    /* ── Download buttons (S04) ────────────────────────────────── */
+    .download-row {
+      display: flex; gap: 12px; margin-bottom: 28px; flex-wrap: wrap;
+    }
+    .download-btn {
+      display: inline-flex; align-items: center; gap: 12px;
+      padding: 14px 20px; border-radius: 10px;
+      text-decoration: none; transition: transform 0.2s ease, box-shadow 0.2s ease;
+      min-width: 220px;
+    }
+    .download-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(26,46,61,0.12); }
+    .download-btn.primary { background: var(--accent); color: #fff; }
+    .download-btn.secondary { background: var(--surface); color: var(--text); border: 2px solid var(--border); }
+    .dl-icon {
+      font-size: 20px; font-weight: 700;
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; border-radius: 50%;
+      background: rgba(255,255,255,0.22);
+    }
+    .download-btn.secondary .dl-icon { background: var(--surface2); color: var(--accent); }
+    .dl-title { font-size: 14px; font-weight: 700; line-height: 1.2; }
+    .dl-sub   { font-family: var(--font-mono); font-size: 9px; opacity: 0.75; margin-top: 2px; letter-spacing: 0.05em; }
+
+    .s04-footer { margin-top: 16px; font-family: var(--font-mono); font-size: 9px; color: var(--muted); letter-spacing: 0.1em; opacity: 0.6; }
+
+    /* ── Mobile ───────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      body { height: 700vh; }
+      .section { padding: 80px 5vw 40px; align-items: flex-start; flex-direction: column; }
+      #s01 { align-items: flex-end; padding-bottom: 12vh; }
+      #s02, #s03 { flex-direction: column; align-items: flex-start; }
+      #s02 .sec-content, #s03 .sec-content { flex: none; max-width: 100%; }
+      .sec-visual { width: 100%; margin-top: 24px; max-height: 220px; overflow: hidden; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); width: 100%; }
+      .stat-card { min-width: unset; }
+      .specs-grid { grid-template-columns: 1fr; }
+      .print-steps { grid-template-columns: repeat(2, 1fr); }
+      .step-card.primary { grid-column: span 2; }
+      h2.sec-heading { font-size: clamp(20px, 5vw, 30px); }
+      #nav { padding: 18px 5vw; }
+      #progress-track { display: none; }
+    }
+    @media (max-width: 480px) {
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+      .print-steps { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Loading -->
+  <div id="loading">
+    <div id="loading-logo">✈ Sky<span class="yl">Buddy</span></div>
+    <div id="loading-bar-track"><div id="loading-bar-fill"></div></div>
+    <div id="loading-text">LOADING / 00%</div>
+  </div>
+
+  <!-- Navigation -->
+  <nav id="nav">
+    <span id="nav-logo">Sky<span class="yl">Buddy</span></span>
+    <div id="nav-right">
+      <span id="nav-section">01 / 04</span>
+      <div id="nav-dot"></div>
+    </div>
+  </nav>
+
+  <!-- Three.js canvas -->
+  <div id="canvas-container"></div>
+
+  <!-- Cloud overlay -->
+  <div id="cloud-overlay">
+    <div class="cloud cloud-1"></div>
+    <div class="cloud cloud-2"></div>
+    <div class="cloud cloud-3"></div>
+    <div class="cloud cloud-4"></div>
+  </div>
+
+  <!-- Vertical progress bar -->
+  <div id="progress-track">
+    <div id="progress-fill"></div>
+    <div id="progress-label">01/04</div>
+  </div>
+
+  <!-- Content overlay -->
+  <div id="content">
+
+    <!-- ── 01 HERO ─────────────────────────────────────────────── -->
+    <section class="section" id="s01" data-start="0" data-end="0.21">
+      <div class="sec-content">
+        <div class="sec-label">01 / SKYBUDDY</div>
+        <h1 class="hero-title">Sky<span class="yl">Buddy</span></h1>
+        <p class="hero-sub">Vytiskni si doma. Hraj si hned.<br>Bezpečné letadlo pro malé piloty.</p>
+        <span class="hero-tag">MATURITNÍ PROJEKT / 2026</span>
+      </div>
+      <div class="scroll-indicator">
+        <div class="scroll-arrow"></div>
+        SCROLL
+      </div>
+      <div class="corner-tl">COORD: X+01.00 / Y+0.00</div>
+      <div class="corner-br">SECTION 01/04 — ACTIVE</div>
+        <svg class="hero-cloud-svg c-a" viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg">
+          <ellipse cx="50" cy="50" rx="35" ry="22" fill="rgba(255,255,255,0.85)"/>
+          <ellipse cx="90" cy="42" rx="45" ry="28" fill="rgba(255,255,255,0.9)"/>
+          <ellipse cx="140" cy="50" rx="38" ry="24" fill="rgba(255,255,255,0.85)"/>
+          <ellipse cx="100" cy="55" rx="55" ry="20" fill="rgba(255,255,255,0.7)"/>
+        </svg>
+        <svg class="hero-cloud-svg c-b" viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg">
+          <ellipse cx="60" cy="45" rx="30" ry="20" fill="rgba(255,255,255,0.75)"/>
+          <ellipse cx="100" cy="38" rx="38" ry="24" fill="rgba(255,255,255,0.85)"/>
+          <ellipse cx="135" cy="48" rx="28" ry="18" fill="rgba(255,255,255,0.75)"/>
+        </svg>
+        <svg class="hero-cloud-svg c-c" viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg">
+          <ellipse cx="50" cy="48" rx="32" ry="20" fill="rgba(255,255,255,0.8)"/>
+          <ellipse cx="95" cy="40" rx="42" ry="26" fill="rgba(255,255,255,0.9)"/>
+          <ellipse cx="145" cy="50" rx="35" ry="22" fill="rgba(255,255,255,0.8)"/>
+        </svg>
+    </section>
+
+    <!-- ── 02 DESIGN ──────────────────────────────────────────── -->
+    <section class="section" id="s02" data-start="0.23" data-end="0.46">
+      <div class="sec-sep"><div class="sep-cross"></div><div class="sep-line"></div><div class="sep-cross"></div></div>
+      <div class="sec-content">
+        <div class="sec-label">02 / DESIGN</div>
+        <h2 class="sec-heading">Navrženo<br>pro bezpečnou hru</h2>
+        <p class="body-text">
+          SkyBuddy byl navržen v Autodesk Fusion 360 s důrazem na bezpečnost dětí ve věku
+          3 až 6 let. Všechny hrany jsou zaobleny s minimálním rádiusem 5 mm, příď letadla
+          má zaoblení 25 mm. Model se skládá ze 4 samostatných částí: trup, křídla,
+          ocasní plochy a kola podvozku.
+        </p>
+        <p class="body-text" style="margin-top:-12px">
+          Proporce jsou přizpůsobeny dětské ruce, délka trupu 200 mm, rozpětí křídla
+          120 mm na každou stranu. Žádné oddělitelné malé části, žádné ostré hrany.
+          Vytištěno z netoxického PLA plastu.
+        </p>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value">200<span class="stat-unit"> mm</span></div>
+            <div class="stat-label">Délka trupu</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">120<span class="stat-unit"> mm</span></div>
+            <div class="stat-label">Rozpětí křídla</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">3+<span class="stat-unit"> let</span></div>
+            <div class="stat-label">Věková skupina</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">R25<span class="stat-unit"> mm</span></div>
+            <div class="stat-label">Min. zaoblení</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="corner-tl">COORD: X+02.00 / Y+0.00</div>
+      <div class="corner-br">SECTION 02/04 — ACTIVE</div>
+    </section>
+
+    <!-- ── 03 BEZPEČNOST ──────────────────────────────────────── -->
+    <section class="section" id="s03" data-start="0.49" data-end="0.72">
+      <div class="sec-sep"><div class="sep-cross"></div><div class="sep-line"></div><div class="sep-cross"></div></div>
+      <div class="sec-content">
+        <div class="sec-label">03 / BEZPEČNOST</div>
+        <h2 class="sec-heading">Bezpečný design,<br>dvoubarevný tisk</h2>
+        <p class="body-text">
+          Hračka kombinuje dvě barvy filamentu pro jasnou vizuální identitu a splňuje
+          standardy bezpečnosti pro malé děti. Barvy si vybereš úplně sám, jakákoliv
+          kontrastní dvojice funguje skvěle. Tisk probíhá na jakékoliv FDM tiskárně
+          s podporou multi-material nebo s ručním přepínáním barev.
+        </p>
+        <div class="specs-grid">
+          <div class="spec-card">
+            <div class="spec-id">S01 / BEZPEČNOST</div>
+            <div class="spec-name">Zaoblené hrany</div>
+            <div class="spec-role">Žádné ostré hrany, netoxické PLA</div>
+            <ul class="spec-list">
+              <li>Min. fillet R5 mm na všech hranách</li>
+              <li>Příď R25 mm, bezpečná pro kousání</li>
+              <li>PLA certifikováno pro kontakt s potravinami</li>
+              <li>Bez malých oddělitelných dílů</li>
+            </ul>
+          </div>
+          <div class="spec-card">
+            <div class="spec-id">S02 / FILAMENTY</div>
+            <div class="spec-name">Dvě barvy PLA</div>
+            <div class="spec-role">Jakákoliv kontrastní kombinace</div>
+            <ul class="spec-list">
+              <li>2 cívky PLA dle vlastního výběru</li>
+              <li>1.75 mm standard, jakákoliv značka</li>
+              <li>Multi-material nebo ruční výměna</li>
+              <li>Spotřeba cca 45 g celkem</li>
+            </ul>
+          </div>
+          <div class="spec-card">
+            <div class="spec-id">S03 / DOMÁCÍ TISK</div>
+            <div class="spec-name">FDM tiskárna</div>
+            <div class="spec-role">Prusa, Creality, Bambu, jakákoliv 3D tiskárna</div>
+            <ul class="spec-list">
+              <li>Vrstva 0.2 mm, 20 % infill</li>
+              <li>Čas tisku 6 až 8 hodin</li>
+              <li>Teplota trysky 210 °C</li>
+              <li>Bez support structures</li>
+            </ul>
+          </div>
+          <div class="spec-card">
+            <div class="spec-id">S04 / VĚKOVÁ SKUPINA</div>
+            <div class="spec-name">3 až 6 let</div>
+            <div class="spec-role">Navrženo pro předškolní věk</div>
+            <ul class="spec-list">
+              <li>Velikost přizpůsobena dětské ruce</li>
+              <li>Hmotnost pod 80 g</li>
+              <li>Měkké obrysy, stabilní stání</li>
+              <li>Ideální pro první seznámení s letadly</li>
+            </ul>
+          </div>
+        </div>
+        <div class="sec-footer">
+          <div class="weight-row">
+            <span class="weight-label">CELKOVÁ HMOTNOST</span>
+            <span class="weight-value">~75 g</span>
+          </div>
+          <div class="iso-ref">Materiálové specifikace dle standardu EN 71 a CPSIA pro dětské hračky.</div>
+        </div>
+      </div>
+      <div class="corner-tl">COORD: X+03.00 / Y+0.00</div>
+      <div class="corner-br">SECTION 03/04 — ACTIVE</div>
+    </section>
+
+    <!-- ── 04 JAK TISKNOUT ────────────────────────────────────── -->
+    <section class="section" id="s04" data-start="0.74" data-end="1.0">
+      <div class="sec-sep"><div class="sep-cross"></div><div class="sep-line"></div><div class="sep-cross"></div></div>
+      <div class="sec-content">
+        <div class="sec-label">04 / TISK</div>
+        <h2 class="sec-heading">Jak si vytisknout SkyBuddy</h2>
+        <p class="s04-intro">
+          Celý model je volně ke stažení. Stačí ti FDM 3D tiskárna, dvě cívky PLA filamentu
+          v jakýchkoliv barvách (klidně modrá + bílá, zelená + žlutá, cokoliv si vybereš)
+          a pár hodin trpělivosti. Návod zvládne i úplný začátečník.
+        </p>
+        <div class="download-row">
+          <a href="./assets/skybuddy.stl" download class="download-btn primary">
+            <span class="dl-icon">↓</span>
+            <div>
+              <div class="dl-title">Stáhnout STL</div>
+              <div class="dl-sub">Připraveno pro slicer</div>
+            </div>
+          </a>
+          <a href="./assets/skybuddy.3mf" download class="download-btn secondary">
+            <span class="dl-icon">↓</span>
+            <div>
+              <div class="dl-title">Stáhnout 3MF</div>
+              <div class="dl-sub">Multi-material varianta</div>
+            </div>
+          </a>
+        </div>
+        <div class="print-steps">
+          <div class="step-card">
+            <div class="step-num">01</div>
+            <div class="step-name">Vyber si barvy</div>
+            <div class="step-desc">Dvě cívky PLA filamentu, jakékoliv barvy. Doporučujeme kontrastní kombinaci, napríklad žlutá a červená, modrá a bílá nebo zelená a oranžová.</div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">02</div>
+            <div class="step-name">Nastav slicer</div>
+            <div class="step-desc">Cura nebo PrusaSlicer. Vrstva 0.2 mm, infill 20 %, bez supportů. Pro multi-material nastav color change na vrstvě 15 mm.</div>
+          </div>
+          <div class="step-card">
+            <div class="step-num">03</div>
+            <div class="step-name">Tiskni a hraj</div>
+            <div class="step-desc">6 až 8 hodin tisku, pak hned můžeš hrát. Hotové letadlo je lehké, odolné a připravené na první let po obýváku.</div>
+          </div>
+        </div>
+        <p class="s04-footer">Školní projekt · Maturita 2026 · Gymnázium Na Zatlance</p>
+      </div>
+      <div class="corner-tl">COORD: X+04.00 / Y+0.00</div>
+      <div class="corner-br">SECTION 04/04 — ACTIVE</div>
+    </section>
+
+  </div><!-- #content -->
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OBJLoader }       from 'three/addons/loaders/OBJLoader.js';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+    import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+    /* ── Renderer ────────────────────────────────────────────────── */
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping      = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+    /* ── Scene ───────────────────────────────────────────────────── */
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xd4e8f7); // matches --bg, seamless blend
+
+    /* ── Camera — fixed position, lookAt animated by scroll ─────── */
+    const CAM_Z = 3.5;
+    const FOV   = 35;
+    const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.01, 200);
+    camera.position.set(0, 0, CAM_Z);
+    camera.lookAt(0, 0, 0);
+
+    /* ── Lights ──────────────────────────────────────────────────── */
+    const keyLight = new THREE.DirectionalLight(0xfffaf0, 3.0); // warm sunlight
+    keyLight.position.set(2.5, 3.0, 2.0);
+    scene.add(keyLight);
+
+    const fillLight = new THREE.DirectionalLight(0xd4e8f7, 1.2); // sky bounce
+    fillLight.position.set(-3.0, 1.0, 1.5);
+    scene.add(fillLight);
+
+    const rimLight = new THREE.DirectionalLight(0xfff5d0, 0.8); // soft warm rim
+    rimLight.position.set(0, -1.0, -3.0);
+    scene.add(rimLight);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 2.2));
+
+    /* ── Environment (IBL) ───────────────────────────────────────── */
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    pmrem.compileEquirectangularShader();
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+
+    /* ── Material resolution ─────────────────────────────────────── */
+    /*
+     * Maps Fusion 360 appearance names → MeshStandardMaterial.
+     * resolveMat() first checks the exact-name table, then falls back to
+     * substring matching, then to a neutral gray fallback.
+     * Unknown names are logged to console so you can add them here.
+     *
+     * Yellow (0xf5a623) = trup/body (PLA žlutá)
+     * Red    (0xd0021b) = křídla/ocas (PLA červená)
+     * Gray   (0xeeeeee) = ostatní části
+     */
+    const matYellow = () => new THREE.MeshStandardMaterial({ color: 0xf5a623, roughness: 0.55, metalness: 0.0 });
+    const matRed    = () => new THREE.MeshStandardMaterial({ color: 0xd0021b, roughness: 0.55, metalness: 0.0 });
+    const matGray   = () => new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.60, metalness: 0.0 });
+    const matFallback = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.60, metalness: 0.0 });
+
+    const exactMats = {
+      'Yellow': matYellow(), 'yellow': matYellow(),
+      'Amber':  matYellow(), 'amber':  matYellow(),
+      'Opaque(245,166,35)': matYellow(),
+      'Opaque(255,193,7)':  matYellow(),
+      'Opaque(253,216,53)': matYellow(),
+      'Red':  matRed(), 'red': matRed(),
+      'Opaque(208,2,27)':  matRed(),
+      'Opaque(255,0,0)':   matRed(),
+      'Opaque(220,0,0)':   matRed(),
+      'White': matGray(), 'white': matGray(),
+      'Opaque(238,238,238)': matGray(),
+      'Opaque(200,200,200)': matGray(),
+      'Opaque(246,246,246)': matGray(),
+    };
+
+    function resolveMat(name) {
+      if (exactMats[name]) return exactMats[name];
+      const n = name.toLowerCase();
+      if (n.includes('yellow') || n.includes('amber') || n.includes('245,166') || n.includes('253,216')) return matYellow();
+      if (n.includes('red')    || n.includes('208,2')  || n.includes('255,0,0') || n.includes('220,0'))  return matRed();
+      if (n.includes('white')  || n.includes('238,238') || n.includes('246,246'))                         return matGray();
+      console.log('[SkyBuddy] Unknown material:', JSON.stringify(name), '→ fallback gray');
+      return matFallback;
+    }
+
+    /* ── Merge geometries per material (low draw-call count) ─────── */
+    function optimiseMesh(group) {
+      group.updateMatrixWorld(true);
+      const buckets = {};
+      group.traverse(child => {
+        if (!child.isMesh) return;
+        const name = child.material?.name || '__fallback';
+        if (!buckets[name]) buckets[name] = { geos: [], mat: resolveMat(name) };
+        const geo = child.geometry.clone();
+        geo.applyMatrix4(child.matrixWorld);
+        buckets[name].geos.push(geo);
+      });
+      const result = new THREE.Group();
+      for (const { geos, mat } of Object.values(buckets)) {
+        if (!geos.length) continue;
+        const merged = mergeGeometries(geos, false);
+        if (merged) result.add(new THREE.Mesh(merged, mat));
+        geos.forEach(g => g.dispose());
+      }
+      return result;
+    }
+
+    /* ── Loading UI ──────────────────────────────────────────────── */
+    let model = null, baseScale = 1;
+    let fakeProgress = 0, fakeTimer = null;
+
+    function setLoadingUI(pct) {
+      document.getElementById('loading-bar-fill').style.width = pct + '%';
+      document.getElementById('loading-text').textContent =
+        'LOADING / ' + Math.round(pct).toString().padStart(2, '0') + '%';
+    }
+    function hideLoader() {
+      clearInterval(fakeTimer);
+      setLoadingUI(100);
+      const el = document.getElementById('loading');
+      setTimeout(() => { el.style.opacity = '0'; el.style.pointerEvents = 'none'; }, 300);
+      setTimeout(() => { el.style.display = 'none'; }, 1100);
+    }
+
+    fakeTimer = setInterval(() => {
+      fakeProgress = Math.min(fakeProgress + Math.random() * 2.2 + 0.4, 88);
+      setLoadingUI(fakeProgress);
+    }, 100);
+
+    /* Fallback: pokud se OBJ nenačte do 12 s, loader se skryje tak jako tak */
+    const loaderFallback = setTimeout(hideLoader, 12000);
+
+    /* ── OBJ loading ─────────────────────────────────────────────── */
+    new OBJLoader().load(
+      './assets/skybuddy.obj',
+      (object) => {
+        /* Centre geometry at world origin */
+        const box  = new THREE.Box3().setFromObject(object);
+        const size = box.getSize(new THREE.Vector3());
+        object.position.copy(box.getCenter(new THREE.Vector3()).negate());
+        object.updateMatrixWorld(true);
+
+        const merged = optimiseMesh(object);
+
+        /*
+         * Scale: model height fills 60% of visible viewport height at z=0.
+         * visibleHeight at z=0 = 2 * CAM_Z * tan(FOV/2 * deg2rad)
+         */
+        const halfVH  = CAM_Z * Math.tan((FOV / 2) * Math.PI / 180);
+        const targetH = 2 * halfVH * 0.60;
+        baseScale     = targetH / size.y;
+        merged.scale.setScalar(baseScale);
+
+        scene.add(merged);
+        model = merged;
+        clearTimeout(loaderFallback);
+        hideLoader();
+      },
+      (xhr) => {
+        if (xhr.total > 0) {
+          const p = (xhr.loaded / xhr.total) * 100;
+          if (p > fakeProgress) { fakeProgress = p; setLoadingUI(p); }
+        }
+      },
+      (err) => {
+        console.error('[SkyBuddy] OBJ load error:', err);
+        clearTimeout(loaderFallback);
+        hideLoader();
+      }
+    );
+
+    /* ── Scroll keyframes ────────────────────────────────────────── */
+    /*
+     * Each keyframe: t (scroll 0→1), px/py (world position), sf (scale
+     * relative to baseScale), rx (X rotation rad), rz (Z rotation rad).
+     * Y rotation is driven separately by scroll fraction (2 full turns).
+     *
+     * Tweak px/py/sf/rx/rz here to adjust the model's pose per section.
+     */
+    const modelKFs = [
+      { t: 0.00, px:  0.70, py:  0,     sf: 0.55, rx:  0.00, rz:  0.00 },
+      { t: 0.21, px:  0.70, py:  0,     sf: 0.55, rx:  0.00, rz:  0.00 },
+      { t: 0.23, px:  0.70, py:  0,     sf: 0.55, rx: -0.10, rz:  0.05 },
+      { t: 0.46, px:  0.70, py:  0,     sf: 0.55, rx: -0.10, rz:  0.05 },
+      { t: 0.49, px:  0.70, py:  0,     sf: 0.55, rx:  0.00, rz: -0.05 },
+      { t: 0.72, px:  0.70, py:  0,     sf: 0.55, rx:  0.00, rz: -0.05 },
+      { t: 0.74, px:  0,    py:  0,     sf: 0.55, rx:  0.00, rz:  0.00 },
+      { t: 1.00, px:  0,    py:  0,     sf: 0.55, rx:  0.00, rz:  0.00 },
+    ];
+
+    /* Smoothstep — eases transitions at both ends of each keyframe span */
+    function ss(t) { return t * t * (3 - 2 * t); }
+
+    function lerpKF(t, prop) {
+      let a = modelKFs[0], b = modelKFs[modelKFs.length - 1];
+      for (let i = 0; i < modelKFs.length - 1; i++) {
+        if (t >= modelKFs[i].t && t <= modelKFs[i + 1].t) {
+          a = modelKFs[i]; b = modelKFs[i + 1]; break;
+        }
+      }
+      const span = b.t - a.t;
+      const lt   = span === 0 ? 0 : ss((t - a.t) / span);
+      return a[prop] + (b[prop] - a[prop]) * lt;
+    }
+
+    /* ── Scroll state ────────────────────────────────────────────── */
+    let targetFrac = 0, scrollFrac = 0;
+    const camLookAt = new THREE.Vector3();
+    let   idleTick  = 0;
+
+    window.addEventListener('scroll', () => {
+      const max = document.body.scrollHeight - window.innerHeight;
+      targetFrac = max > 0 ? window.scrollY / max : 0;
+    }, { passive: true });
+
+    /* ── Section entrance logic ──────────────────────────────────── */
+    const sections = Array.from(document.querySelectorAll('.section'));
+    const entered  = new Set();
+
+    function updateSections(t) {
+      sections.forEach(sec => {
+        const start = parseFloat(sec.dataset.start);
+        const end   = parseFloat(sec.dataset.end);
+        const range = end - start;
+        if (range <= 0) return;
+
+        const lt = (t - start) / range;
+        let opacity = 0, ty = 28;
+
+        if (lt >= 0 && lt <= 1) {
+          if (lt < 0.18) {
+            const p = lt / 0.18;
+            opacity = p; ty = 28 * (1 - p);
+          } else if (lt > 0.82) {
+            const p = (lt - 0.82) / 0.18;
+            opacity = 1 - p; ty = -20 * p;
+          } else {
+            opacity = 1; ty = 0;
+          }
+        }
+
+        sec.style.opacity   = opacity;
+        sec.style.transform = `translateY(${ty}px)`;
+
+        const active = opacity > 0.05;
+        sec.classList.toggle('visible', active);
+
+        if (active && !entered.has(sec.id)) {
+          entered.add(sec.id);
+          sec.classList.add('entered');
+        }
+        /* Remove .entered when section leaves so re-entry replays stagger */
+        if (!active && entered.has(sec.id)) {
+          entered.delete(sec.id);
+          sec.classList.remove('entered');
+        }
+      });
+    }
+
+    /* ── Nav + progress ──────────────────────────────────────────── */
+    const navSec   = document.getElementById('nav-section');
+    const nav      = document.getElementById('nav');
+    const progFill = document.getElementById('progress-fill');
+    const progLbl  = document.getElementById('progress-label');
+
+    function updateUI(t) {
+      let n = '01';
+      if      (t >= 0.74) n = '04';
+      else if (t >= 0.49) n = '03';
+      else if (t >= 0.23) n = '02';
+      navSec.textContent   = n + ' / 04';
+      progLbl.textContent  = n + '/04';
+      progFill.style.height = (t * 100) + '%';
+      nav.classList.toggle('scrolled', t > 0.04);
+    }
+
+    /* ── Resize ──────────────────────────────────────────────────── */
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    /* ── RAF loop ────────────────────────────────────────────────── */
+    let paused = false;
+    document.addEventListener('visibilitychange', () => {
+      paused = document.hidden;
+      if (!paused) loop();
+    });
+
+    function loop() {
+      if (paused) return;
+      requestAnimationFrame(loop);
+
+      /* Smooth scroll interpolation */
+      scrollFrac += (targetFrac - scrollFrac) * 0.055;
+
+      if (model) {
+        const px = lerpKF(scrollFrac, 'px');
+        const py = lerpKF(scrollFrac, 'py');
+        const sf = lerpKF(scrollFrac, 'sf');
+        const rx = lerpKF(scrollFrac, 'rx');
+        const rz = lerpKF(scrollFrac, 'rz');
+
+        model.position.set(px, py, 0);
+        model.scale.setScalar(baseScale * sf);
+
+        /* Two full Y-axis rotations across the full scroll range */
+        const baseRot = scrollFrac * Math.PI * 4;
+        if (scrollFrac < 0.16) {
+          /* Gentle idle wobble on the landing section */
+          idleTick += 0.011;
+          model.rotation.y = baseRot + Math.sin(idleTick) * 0.07;
+        } else {
+          model.rotation.y = baseRot;
+        }
+        model.rotation.x = rx;
+        model.rotation.z = rz;
+
+        /* Subtle camera pan toward model for parallax feel */
+        camLookAt.lerp(new THREE.Vector3(px * 0.25, py * 0.25, 0), 0.045);
+      }
+
+      camera.position.set(0, 0, CAM_Z);
+      camera.lookAt(camLookAt);
+
+      updateSections(scrollFrac);
+      updateUI(scrollFrac);
+      renderer.render(scene, camera);
+    }
+
+    loop();
+  </script>
+</body>
+</html>
